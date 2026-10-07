@@ -1,5 +1,7 @@
+import * as SQLite from "expo-sqlite";
 import { useState } from "react";
 import {
+  Alert,
   FlatList,
   Keyboard,
   Pressable,
@@ -9,40 +11,78 @@ import {
   View,
 } from "react-native";
 
-// 지출 하나의 모양 정하기
+// 데이터베이스 열기 (없으면 새로 만들어짐)
+const db = SQLite.openDatabaseSync("kakeibo.db");
+
+// expenses(지출) 표 만들기 (이미 있으면 그대로 둠)
+db.execSync(`
+  CREATE TABLE IF NOT EXISTS expenses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    amount INTEGER NOT NULL,
+    category TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+`);
+
 type Item = {
-  id: string;
+  id: number;
   amount: number;
   category: string;
+  created_at: string;
 };
 
-const CATEGORIES = ["식비", "교통비", "생활용품", "기타"];
+const CATEGORIES = ["식비","취미","카페", "교통비", "생활용품", "기타"];
 
 export default function Index() {
   const income = 200000;
 
-  // 앱이 기억하는 값들
-  const [items, setItems] = useState<Item[]>([]);
+  // 앱이 켜질 때 DB에서 지출 목록 불러오기
+  const [items, setItems] = useState<Item[]>(() =>
+    db.getAllSync<Item>("SELECT * FROM expenses ORDER BY id DESC")
+  );
   const [amountText, setAmountText] = useState("");
   const [category, setCategory] = useState(CATEGORIES[0]);
 
-  // 지출 합계와 잔액 계산
   const expense = items.reduce((sum, item) => sum + item.amount, 0);
   const balance = income - expense;
 
-  // "추가하기" 버튼을 눌렀을 때
+  // 추가: DB에 저장 + 화면에 반영
   const addItem = () => {
     const amount = Number(amountText);
-    if (!amount || amount <= 0) return; // 숫자가 아니면 무시
+    if (!amount || amount <= 0) return;
+
+    const createdAt = new Date().toISOString();
+    const result = db.runSync(
+      "INSERT INTO expenses (amount, category, created_at) VALUES (?, ?, ?)",
+      amount,
+      category,
+      createdAt
+    );
 
     const newItem: Item = {
-      id: Date.now().toString(),
+      id: result.lastInsertRowId,
       amount: amount,
       category: category,
+      created_at: createdAt,
     };
     setItems([newItem, ...items]);
     setAmountText("");
     Keyboard.dismiss();
+  };
+
+  // 삭제: 길게 누르면 확인 후 삭제
+  const deleteItem = (item: Item) => {
+    Alert.alert("삭제할까요?", `${item.category} ¥${item.amount.toLocaleString()}`, [
+      { text: "취소", style: "cancel" },
+      {
+        text: "삭제",
+        style: "destructive",
+        onPress: () => {
+          db.runSync("DELETE FROM expenses WHERE id = ?", item.id);
+          setItems(items.filter((i) => i.id !== item.id));
+        },
+      },
+    ]);
   };
 
   return (
@@ -69,7 +109,6 @@ export default function Index() {
         </View>
       </View>
 
-      {/* 지출 입력 */}
       <View style={styles.card}>
         <TextInput
           style={styles.input}
@@ -101,20 +140,19 @@ export default function Index() {
         </Pressable>
       </View>
 
-      {/* 지출 목록 */}
       <FlatList
         data={items}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item) => String(item.id)}
         ListEmptyComponent={
           <Text style={styles.empty}>아직 지출이 없어요</Text>
         }
         renderItem={({ item }) => (
-          <View style={styles.listItem}>
+          <Pressable style={styles.listItem} onLongPress={() => deleteItem(item)}>
             <Text style={styles.listCategory}>{item.category}</Text>
             <Text style={styles.listAmount}>
               -¥{item.amount.toLocaleString()}
             </Text>
-          </View>
+          </Pressable>
         )}
       />
     </View>
@@ -146,7 +184,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: "#222",
   },
-  chips: { flexDirection: "row", gap: 8, marginTop: 12 },
+  chips: { flexDirection: "row", gap: 8, marginTop: 12 ,flexWrap:"wrap"},
   chip: {
     paddingVertical: 6,
     paddingHorizontal: 12,
