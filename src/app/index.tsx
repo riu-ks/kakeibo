@@ -74,6 +74,7 @@ export default function Index() {
         <TextInput
           style={styles.input}
           placeholder="금액 입력 (예: 1200)"
+          placeholderTextColor="#AAA"
           keyboardType="number-pad"
           value={amountText}
           onChangeText={setAmountText}
